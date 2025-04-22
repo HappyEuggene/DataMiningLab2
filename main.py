@@ -30,7 +30,6 @@ def load_data(path: str) -> pd.DataFrame:
     })
 
     df = df.dropna(subset=['userId', 'itemId'])
-    # Normalize types
     df['userId'] = df['userId'].astype(float).astype(int).astype(str)
     df['itemId'] = df['itemId'].astype(str)
 
