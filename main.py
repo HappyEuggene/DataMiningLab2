@@ -1,37 +1,24 @@
 import os
-
 import pandas as pd
 import numpy as np
-
-# Surprise for collaborative filtering
 from surprise import SVD, Dataset, Reader
 from surprise.model_selection import train_test_split
 from surprise import accuracy
-
-# Dash and Plotly for visualization
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
 import plotly.express as px
 
-# ----------------------------------------------------------------------------
-# Configuration
-# ----------------------------------------------------------------------------
 DATA_PATH_RETAIL = os.path.join(os.getcwd(), 'online_retail_II.xlsx')
 MAX_SAMPLES = 1_000_000
 
-# ----------------------------------------------------------------------------
-# 1. Data Loading and Preprocessing
-# ----------------------------------------------------------------------------
 def load_data(path: str) -> pd.DataFrame:
     ext = os.path.splitext(path)[1].lower()
     if ext not in ['.xls', '.xlsx']:
         raise ValueError(f"Unsupported file type: {ext}")
 
-    # Read the first sheet
     df = pd.read_excel(path)
 
-    # Rename columns to standard names
     df = df.rename(columns={
         'Customer ID': 'userId',
         'StockCode': 'itemId',
@@ -42,31 +29,23 @@ def load_data(path: str) -> pd.DataFrame:
         'Country': 'Country'
     })
 
-    # Drop rows without userId or itemId
     df = df.dropna(subset=['userId', 'itemId'])
     # Normalize types
     df['userId'] = df['userId'].astype(float).astype(int).astype(str)
     df['itemId'] = df['itemId'].astype(str)
 
-    # Keep only positive quantities
     df = df[df['Quantity'] > 0]
 
-    # Derive rating from Quantity (1-5)
     df['rating'] = df['Quantity'].clip(lower=1, upper=5).astype(float)
 
-    # Sample if too large
     if len(df) > MAX_SAMPLES:
         df = df.sample(n=MAX_SAMPLES, random_state=42)
 
-    # Timestamps
     df['date'] = pd.to_datetime(df['timestamp'], errors='coerce')
     df['year_month'] = df['date'].dt.to_period('M').astype(str)
 
     return df.reset_index(drop=True)
 
-# ----------------------------------------------------------------------------
-# 2. Exploratory Data Analysis (EDA)
-# ----------------------------------------------------------------------------
 def compute_basic_stats(df: pd.DataFrame) -> dict:
     return {
         'num_samples': len(df),
@@ -77,35 +56,30 @@ def compute_basic_stats(df: pd.DataFrame) -> dict:
 
 
 def create_eda_figures(df: pd.DataFrame) -> dict:
-    # Rating distribution
     rating_counts = df['rating'].value_counts().sort_index()
     fig_rating_dist = px.bar(x=rating_counts.index, y=rating_counts.values,
                               labels={'x': 'Rating', 'y': 'Count'},
                               title='Rating Distribution', template='plotly_dark')
     fig_rating_dist.update_traces(marker_color='teal', marker_line_color='navy', marker_line_width=1.5)
 
-    # Top users
     top_users = df['userId'].value_counts().nlargest(10)
     fig_top_users = px.bar(x=top_users.values, y=top_users.index,
                              orientation='h', labels={'x': 'Purchases', 'y': 'User ID'},
                              title='Top 10 Users by Purchases', template='ggplot2')
     fig_top_users.update_traces(marker_color='orchid', marker_line_width=1)
 
-    # Top items
     top_items = df['itemId'].value_counts().nlargest(10)
     fig_top_items = px.bar(x=top_items.values, y=top_items.index,
                              orientation='h', labels={'x': 'Purchases', 'y': 'Item ID'},
                              title='Top 10 Items by Purchases', template='seaborn')
     fig_top_items.update_traces(marker_color='olive', marker_line_color='black', marker_line_width=1)
 
-    # Total ratings over time
     time_df = df.groupby('year_month').agg(total_ratings=('rating', 'count')).reset_index()
     fig_time_count = px.line(time_df, x='year_month', y='total_ratings',
                               labels={'year_month': 'Year-Month', 'total_ratings': 'Total Ratings'},
                               title='Total Ratings Over Time', template='plotly')
     fig_time_count.update_traces(mode='lines+markers', line=dict(dash='dashdot', width=2), marker=dict(symbol='square', size=8))
 
-    # Average rating over time
     time_avg_df = df.groupby('year_month').agg(average_rating=('rating', 'mean')).reset_index()
     fig_time_avg = px.area(time_avg_df, x='year_month', y='average_rating',
                             labels={'year_month': 'Year-Month', 'average_rating': 'Average Rating'},
@@ -120,9 +94,6 @@ def create_eda_figures(df: pd.DataFrame) -> dict:
         'time_avg': fig_time_avg
     }
 
-# ----------------------------------------------------------------------------
-# 3. Build & Evaluate Recommender
-# ----------------------------------------------------------------------------
 def train_recommender(df: pd.DataFrame, n_factors: int = 50) -> tuple:
     reader = Reader(rating_scale=(1, 5))
     data = Dataset.load_from_df(df[['userId', 'itemId', 'rating']], reader)
@@ -134,9 +105,6 @@ def train_recommender(df: pd.DataFrame, n_factors: int = 50) -> tuple:
     mae = accuracy.mae(preds, verbose=False)
     return algo, rmse, mae
 
-# ----------------------------------------------------------------------------
-# 4. Dash App Layout & Callbacks
-# ----------------------------------------------------------------------------
 def create_dash_app(stats, figs, algo, df):
     app = dash.Dash(__name__)
     user_ids = df['userId'].unique()
@@ -193,9 +161,6 @@ def create_dash_app(stats, figs, algo, df):
 
     return app
 
-# ----------------------------------------------------------------------------
-# 5. Main Execution
-# ----------------------------------------------------------------------------
 if __name__ == '__main__':
     df = load_data(DATA_PATH_RETAIL)
     algo, rmse, mae = train_recommender(df)
